@@ -10,6 +10,7 @@ ARG UBUNTU_VERSION=22.04
 FROM ubuntu:${UBUNTU_VERSION} AS builder
 
 ARG BUILD_PLAYERBOTS=ON
+ARG BUILD_MODULES=static
 ARG USE_EXTRACTORS=OFF
 ARG SOURCE_REPO=https://github.com/Shyalya/tortoise-wow.git
 ARG SOURCE_REF=playerbots-integration-gh
@@ -65,6 +66,7 @@ RUN cmake -B build \
         -DBUILD_PLAYERBOTS="${BUILD_PLAYERBOTS}" \
         -DUSE_EXTRACTORS="${USE_EXTRACTORS}" \
         -DALLOW_TURTLE_ADDONS=ON \
+        -DMODULES="${BUILD_MODULES}" \
     && if [ "${EXTRACTORS_ONLY}" = "ON" ]; then \
          cmake --build build -j"${BUILD_JOBS}" --target mapextractor vmapextractor vmap_assembler MoveMapGen \
          && mkdir -p /opt/turtle/bin \
