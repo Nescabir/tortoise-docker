@@ -27,6 +27,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Resolve upstream source commit
+        id: source
+        run: |
+          REF="playerbots-integration-gh"
+          SHA="$(git ls-remote https://github.com/Shyalya/tortoise-wow.git "refs/heads/${REF}" | cut -f1)"
+          if [ -z "${SHA}" ]; then
+            echo "Could not resolve ref ${REF} on Shyalya/tortoise-wow" >&2
+            exit 1
+          fi
+          echo "Resolved ${REF} -> ${SHA}"
+          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -52,6 +64,7 @@ jobs:
             USE_EXTRACTORS=OFF
             SOURCE_REPO=https://github.com/Shyalya/tortoise-wow.git
             SOURCE_REF=playerbots-integration-gh
+            SOURCE_COMMIT=${{ steps.source.outputs.sha }}
             CMAKE_BUILD_TYPE=Release
             CMAKE_INSTALL_PREFIX=/opt/turtle
           cache-from: type=gha,scope=${{ matrix.tag }}
