@@ -42,8 +42,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /src
 
+# Upstream now ships Eluna as a git submodule (src/modules/Eluna). CMake
+# fails configure when BUILD_ELUNA is ON (the default) and LuaEngine.h is
+# missing. --recurse-submodules is required; --shallow-submodules keeps the
+# extra checkout small.
 RUN echo "Cloning ${SOURCE_REPO}#${SOURCE_REF} @ ${SOURCE_COMMIT:-unresolved}" \
-    && git clone --depth 1 --branch "${SOURCE_REF}" "${SOURCE_REPO}" tortoise-wow
+    && git clone --depth 1 --recurse-submodules --shallow-submodules \
+        --branch "${SOURCE_REF}" "${SOURCE_REPO}" tortoise-wow
 
 WORKDIR /src/tortoise-wow
 
@@ -66,7 +71,7 @@ RUN cmake -B build \
         -DBUILD_PLAYERBOTS="${BUILD_PLAYERBOTS}" \
         -DUSE_EXTRACTORS="${USE_EXTRACTORS}" \
         -DALLOW_TURTLE_ADDONS=ON \
-        -DMODULES="${BUILD_MODULES}" \
+        -DBUILD_ELUNA_TESTS=OFF \
     && if [ "${EXTRACTORS_ONLY}" = "ON" ]; then \
          cmake --build build -j"${BUILD_JOBS}" --target mapextractor vmapextractor vmap_assembler MoveMapGen \
          && mkdir -p /opt/turtle/bin \
@@ -83,9 +88,17 @@ RUN cmake -B build \
 # Keep SQL needed for first-time DB init + AutoUpdate path.
 RUN mkdir -p /opt/turtle/sql \
     && cp -a sql/create_databases.sql sql/base sql/database_updates /opt/turtle/sql/ \
-    && if [ -d src/modules/PlayerBots/sql ]; then \
-         mkdir -p /opt/turtle/sql/playerbots \
-         && cp -a src/modules/PlayerBots/sql/. /opt/turtle/sql/playerbots/; \
+    && if [ "${BUILD_PLAYERBOTS}" = "ON" ]; then \
+         if [ -d modules/mod-playerbots/sql ]; then \
+           mkdir -p /opt/turtle/sql/playerbots \
+           && cp -a modules/mod-playerbots/sql/. /opt/turtle/sql/playerbots/; \
+         elif [ -d src/modules/PlayerBots/sql ]; then \
+           mkdir -p /opt/turtle/sql/playerbots \
+           && cp -a src/modules/PlayerBots/sql/. /opt/turtle/sql/playerbots/; \
+         else \
+           echo "BUILD_PLAYERBOTS=ON but playerbots SQL was not found" >&2; \
+           exit 1; \
+         fi; \
        fi
 
 # -----------------------------------------------------------------------------
