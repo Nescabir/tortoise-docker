@@ -92,8 +92,9 @@ done
 
 echo "Applying database_updates with --force (duplicate keys expected)..."
 
-# Find all .sql files, count directory depth, sort deepest first (then alphabetically), and process
-find "${SQL_ROOT}/database_updates" -type f -name "*.sql" \
+# Find all .sql files, count directory depth, sort deepest first (then alphabetically), and process.
+# character/ holds character-DB migrations, so it is applied to DB_CHAR below, not to the world DB.
+find "${SQL_ROOT}/database_updates" -type f -name "*.sql" -not -path "*/character/*" \
   | awk -F'/' '{print NF, $0}' \
   | sort -k1,1nr -k2 \
   | cut -d' ' -f2- \
@@ -101,16 +102,38 @@ find "${SQL_ROOT}/database_updates" -type f -name "*.sql" \
       echo "  -> $(basename "${f}")"
       mysql_root --force "${DB_WORLD}" < "${f}" || true
     done
+for f in "${SQL_ROOT}"/database_updates/character/*.sql; do
+  [[ -f "${f}" ]] || continue
+  echo "  -> $(basename "${f}") (character)"
+  mysql_root --force "${DB_CHAR}" < "${f}" || true
+done
 
 # AutoUpdater keys applied rows by file SHA1 (not by name). Hash 'manual'
 # never matches, so mangosd would retry every update and die on duplicates.
+# Record exactly what it scans: database_updates/world against the world DB and
+# database_updates/character against the character DB (Database.AutoUpdate.Path
+# plus the WorldUpdateName/CharUpdateName folders). Top-level files are not scanned.
 echo "Recording migrations as applied (SHA1 hashes)..."
-mysql_root -e "DELETE FROM ${DB_WORLD}.migrations;"
-for f in "${update_files[@]}"; do
-  n="$(basename "${f}" .sql)"
-  h="$(sha1sum "${f}" | awk '{ print toupper($1) }')"
-  mysql_root -e "INSERT INTO ${DB_WORLD}.migrations (Name, Hash, AppliedAt) VALUES ('${n}','${h}',NOW());"
-done
+record_migrations() {
+  local db="$1" dir="$2" f n h
+  # Same schema mangosd's AutoUpdater creates, so this also works on a DB it has not touched yet.
+  mysql_root -e "CREATE TABLE IF NOT EXISTS ${db}.migrations (
+    Id INT(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+    Name VARCHAR(255) NOT NULL DEFAULT '0' COLLATE 'utf8_general_ci',
+    Module VARCHAR(255) NOT NULL DEFAULT '' COLLATE 'utf8_general_ci',
+    Hash VARCHAR(128) NOT NULL DEFAULT '0' COLLATE 'utf8_general_ci',
+    AppliedAt DATETIME NOT NULL,
+    PRIMARY KEY (Id) USING BTREE) COLLATE='utf8_general_ci' ENGINE=InnoDB;"
+  mysql_root -e "DELETE FROM ${db}.migrations;"
+  for f in "${dir}"/*.sql; do
+    [[ -f "${f}" ]] || continue
+    n="$(basename "${f}" .sql)"
+    h="$(sha1sum "${f}" | awk '{ print toupper($1) }')"
+    mysql_root -e "INSERT INTO ${db}.migrations (Name, Hash, AppliedAt) VALUES ('${n}','${h}',NOW());"
+  done
+}
+record_migrations "${DB_WORLD}" "${SQL_ROOT}/database_updates/world"
+record_migrations "${DB_CHAR}" "${SQL_ROOT}/database_updates/character"
 
 # Verify a known schema change from migrations landed.
 col_count="$(mysql_root -N -e "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA='${DB_WORLD}' AND TABLE_NAME='spell_template' AND COLUMN_NAME='script_name';")"
